@@ -1,0 +1,22 @@
+# Secrets
+*.pem
+*.key
+*.pfx
+.env
+secrets/
+
+# Terraform/ARM state
+*.tfstate
+*.tfstate.backup
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Temp
+*.tmp
+*.log

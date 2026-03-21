@@ -1,0 +1,152 @@
+// ================================================================
+// AzureSOC — Sentinel KQL Detection Rules
+// ================================================================
+// Import these as Scheduled Query Rules in:
+// Sentinel > Analytics > Create > Scheduled query rule
+//
+// Each rule maps to a MITRE ATT&CK technique.
+// Copy the KQL, set the frequency, and configure alert severity.
+// ================================================================
+
+
+// ── T1110.001 — Brute Force RDP ──────────────────────────────────
+// WHAT: Detects multiple failed RDP login attempts from a single IP.
+// WHY: Attackers spray passwords against RDP to gain initial access.
+// FREQUENCY: Every 5 minutes | SEVERITY: Medium
+SecurityEvent
+| where EventID == 4625
+| where LogonType == 10
+| summarize FailedAttempts = count(),
+    DistinctAccounts = dcount(TargetAccount),
+    AttemptedAccounts = make_set(TargetAccount)
+    by SourceIP = IpAddress, bin(TimeGenerated, 5m)
+| where FailedAttempts > 10
+
+
+// ── T1003.001 — LSASS Credential Dumping ─────────────────────────
+// WHAT: Detects processes accessing LSASS memory (where passwords live).
+// WHY: Tools like Mimikatz read LSASS to steal credentials in memory.
+// FREQUENCY: Every 5 minutes | SEVERITY: High
+Event
+| where Source == "Microsoft-Windows-Sysmon"
+| where EventID == 10
+| parse EventData with * '<Data Name="TargetImage">' TargetImage '</Data>' *
+| parse EventData with * '<Data Name="SourceImage">' SourceImage '</Data>' *
+| parse EventData with * '<Data Name="GrantedAccess">' GrantedAccess '</Data>' *
+| where TargetImage endswith "lsass.exe"
+| where GrantedAccess in ("0x1010", "0x1038", "0x1F0FFF", "0x1F3FFF")
+| project TimeGenerated, Computer, SourceImage, TargetImage, GrantedAccess
+
+
+// ── T1059.001 — Suspicious PowerShell ────────────────────────────
+// WHAT: Detects PowerShell commands commonly used by attackers.
+// WHY: PowerShell is the #1 tool for post-exploitation on Windows.
+// FREQUENCY: Every 5 minutes | SEVERITY: High
+SecurityEvent
+| where EventID == 4688
+| where Process == "powershell.exe" or Process == "pwsh.exe"
+| where CommandLine has_any (
+    "Invoke-Mimikatz", "Invoke-Expression", "IEX(",
+    "DownloadString", "EncodedCommand", "FromBase64String",
+    "-enc ", "bypass", "Invoke-WebRequest", "Net.WebClient",
+    "Invoke-Shellcode", "Invoke-WMIMethod", "Start-Process"
+)
+| project TimeGenerated, Computer, Account, CommandLine, ParentProcessName
+
+
+// ── T1543.003 — New Service Created ──────────────────────────────
+// WHAT: Detects new Windows services being installed.
+// WHY: Attackers create services for persistence (malware runs on boot).
+// FREQUENCY: Every 15 minutes | SEVERITY: Medium
+SecurityEvent
+| where EventID == 7045
+| project TimeGenerated, Computer, ServiceName = tostring(EventData),
+    Account
+| where ServiceName !has "Windows" and ServiceName !has "Microsoft"
+
+
+// ── T1021.002 — Lateral Movement via SMB ─────────────────────────
+// WHAT: Detects network logons (Type 3) via NTLM — common in lateral movement.
+// WHY: Attackers use stolen creds to move between machines via SMB shares.
+// FREQUENCY: Every 10 minutes | SEVERITY: Medium
+SecurityEvent
+| where EventID == 4624
+| where LogonType == 3
+| where IpAddress != "-" and IpAddress != "127.0.0.1" and IpAddress != "::1"
+| where AuthenticationPackageName == "NTLM"
+| summarize LogonCount = count() by IpAddress, TargetAccount = TargetUserName,
+    Computer, bin(TimeGenerated, 1h)
+| where LogonCount > 5
+
+
+// ── T1053.005 — Scheduled Task Created ───────────────────────────
+// WHAT: Detects new scheduled tasks via schtasks.exe or PowerShell.
+// WHY: Scheduled tasks are a top persistence mechanism.
+// FREQUENCY: Every 10 minutes | SEVERITY: Medium
+SecurityEvent
+| where EventID == 4688
+| where (Process == "schtasks.exe" and CommandLine has "/create")
+    or (Process == "powershell.exe" and CommandLine has "New-ScheduledTask")
+| project TimeGenerated, Computer, Account, CommandLine
+
+
+// ── T1087.001 — Account Discovery ───────────────────────────────
+// WHAT: Detects enumeration of local/domain accounts.
+// WHY: After initial access, attackers enumerate users to find targets.
+// FREQUENCY: Every 15 minutes | SEVERITY: Low
+SecurityEvent
+| where EventID == 4688
+| where CommandLine has_any ("net user", "net group", "net localgroup",
+    "Get-ADUser", "Get-ADGroup", "whoami", "Get-LocalUser")
+| summarize Commands = make_set(CommandLine), Count = count()
+    by Account, Computer, bin(TimeGenerated, 10m)
+| where Count > 3
+
+
+// ── T1070.001 — Event Log Cleared ───────────────────────────────
+// WHAT: Detects when Windows Event Logs are cleared.
+// WHY: Attackers clear logs to hide their tracks. This should NEVER
+//      happen in normal operations. Instant high-severity alert.
+// FREQUENCY: Every 5 minutes | SEVERITY: High
+SecurityEvent
+| where EventID == 1102
+| project TimeGenerated, Computer, Account
+
+
+// ── T1558.003 — Kerberoasting ───────────────────────────────────
+// WHAT: Detects Kerberos ticket requests for service accounts.
+// WHY: Attackers request TGS tickets for service accounts (like svc.sql)
+//      then crack them offline to get the service account password.
+// FREQUENCY: Every 10 minutes | SEVERITY: High
+SecurityEvent
+| where EventID == 4769
+| where TicketEncryptionType == "0x17"  // RC4 = weak, likely attack
+| where ServiceName !endswith "$"  // Exclude machine accounts
+| project TimeGenerated, Computer, Account = TargetUserName,
+    ServiceName, TicketEncryptionType, IpAddress
+
+
+// ── T1082 — System Information Discovery ────────────────────────
+// WHAT: Detects system enumeration commands.
+// WHY: Attackers gather system info to plan their next move.
+// FREQUENCY: Every 15 minutes | SEVERITY: Low
+SecurityEvent
+| where EventID == 4688
+| where CommandLine has_any ("systeminfo", "hostname", "ipconfig",
+    "Get-ComputerInfo", "Get-WmiObject Win32_OperatingSystem")
+| summarize Commands = make_set(CommandLine), Count = count()
+    by Account, Computer, bin(TimeGenerated, 10m)
+| where Count > 2
+
+
+// ── HONEYPOT — Any Login Attempt ────────────────────────────────
+// WHAT: ANY login attempt to the honeypot is suspicious by definition.
+// WHY: No legitimate user should be logging into the honeypot.
+// FREQUENCY: Every 5 minutes | SEVERITY: High
+SecurityEvent
+| where Computer == "HONEYPOT"
+| where EventID in (4624, 4625)
+| project TimeGenerated, EventID, Account = TargetUserName,
+    LogonType, SourceIP = IpAddress
+| extend AlertTitle = iff(EventID == 4624, "Successful Login to Honeypot!",
+    "Failed Login Attempt on Honeypot")
