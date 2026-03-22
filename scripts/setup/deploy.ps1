@@ -24,6 +24,23 @@ param(
     [string]$ResourceGroup = "rg-azuresoc"
 )
 
+function Register-ProviderAndWait {
+    param(
+        [Parameter(Mandatory=$true)]
+        [string]$Namespace,
+        [int]$MaxChecks = 40
+    )
+
+    az provider register --namespace $Namespace --only-show-errors 2>$null | Out-Null
+    for ($i = 0; $i -lt $MaxChecks; $i++) {
+        $state = az provider show --namespace $Namespace --query "registrationState" -o tsv 2>$null
+        if ($state -eq "Registered") { return $true }
+        Start-Sleep -Seconds 5
+    }
+
+    return $false
+}
+
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "  AzureSOC - Deployment Starting" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
@@ -35,6 +52,7 @@ Write-Host ""
 Write-Host "[1/5] Registering Azure Resource Providers..." -ForegroundColor Yellow
 $providers = @(
     "Microsoft.OperationalInsights",    # Log Analytics
+    "Microsoft.OperationsManagement",   # Workspace solutions used by Sentinel onboarding
     "Microsoft.SecurityInsights",       # Microsoft Sentinel
     "Microsoft.Network",                # VNets, Firewall, NSGs, Bastion
     "Microsoft.Compute",                # Virtual Machines
@@ -47,7 +65,10 @@ $providers = @(
 
 foreach ($provider in $providers) {
     Write-Host "  Registering $provider..." -ForegroundColor Gray
-    az provider register --namespace $provider --only-show-errors 2>$null
+    $registered = Register-ProviderAndWait -Namespace $provider
+    if (-not $registered) {
+        Write-Host "  [WARN] $provider did not reach Registered yet. Continuing..." -ForegroundColor Yellow
+    }
 }
 Write-Host "  Providers registered (may take 1-2 min to activate)" -ForegroundColor Green
 Write-Host ""
@@ -57,7 +78,22 @@ Write-Host ""
 # When you're done with the project, you can delete the entire resource group
 # to remove everything at once (and stop all charges).
 Write-Host "[2/5] Creating Resource Group: $ResourceGroup in $Location..." -ForegroundColor Yellow
+$existingLocation = az group show --name $ResourceGroup --query "location" -o tsv 2>$null
+if ($LASTEXITCODE -eq 0 -and $existingLocation -and ($existingLocation -ne $Location)) {
+    Write-Host "  Existing resource group is in '$existingLocation', deleting so it can be recreated in '$Location'..." -ForegroundColor Yellow
+    az group delete --name $ResourceGroup --yes --no-wait --only-show-errors | Out-Null
+    for ($waitTry = 0; $waitTry -lt 24; $waitTry++) {
+        $exists = az group exists --name $ResourceGroup -o tsv 2>$null
+        if ($exists -ne "true") { break }
+        Start-Sleep -Seconds 10
+    }
+}
+
 az group create --name $ResourceGroup --location $Location --only-show-errors | Out-Null
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "  Failed to create resource group in $Location" -ForegroundColor Red
+    exit 1
+}
 Write-Host "  Resource group created" -ForegroundColor Green
 Write-Host ""
 
