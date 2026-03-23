@@ -1,142 +1,161 @@
-# AzureSOC — Open Source Cloud Security Operations Center
+# AzureSOC — Cloud Security Operations Center
 
-A fully automated, one-command deployable SOC lab on Microsoft Azure with Active Directory, Microsoft Sentinel SIEM, Suricata IDS, Sysmon telemetry, and real-time MITRE ATT&CK attack detection.
+Deploy a complete SOC lab on Azure in one command. Includes Active Directory, Microsoft Sentinel SIEM, Suricata IDS, Sysmon, and MITRE ATT&CK attack simulation.
 
-## What I Built
+---
 
-A complete Security Operations Center that deploys via a single PowerShell command and demonstrates real-world attack detection, threat hunting, and incident response capabilities.
+## Deploy in 3 Steps
 
-## Architecture
+### Prerequisites
+- Azure account ([free $200 credit](https://azure.microsoft.com/en-us/free/))
+- [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli) installed
+- PowerShell 7+ or Windows PowerShell
+- Git
+
+### Step 1 — Clone and deploy
+```powershell
+git clone https://github.com/anishvedant/AzureSOC.git
+cd AzureSOC
+az login
+.\scripts\setup\master-deploy.ps1 -AdminPassword "YourStr0ngP@ss!"
+```
+
+The script auto-scans **10 Azure regions** and **7 VM sizes** to find what's available in your subscription, then deploys everything. Takes 20–40 minutes.
+
+### Step 2 — Connect logs to Sentinel
+1. Go to **portal.azure.com** → search **Microsoft Sentinel** → select **law-azuresoc**
+2. Click **Data connectors** → **Windows Security Events via AMA** → **Open connector page**
+3. Click **+Create data collection rule** → name it `dcr-windows` → add **vm-dc01** → select **All Security Events** → Create
+
+### Step 3 — Run attacks and detect them
+RDP into the DC (IP shown in deploy output), open PowerShell, and run:
+```powershell
+# Account discovery (T1087.001)
+net user /domain
+net group "Domain Admins" /domain
+
+# Kerberoasting (T1558.003)
+Add-Type -AssemblyName System.IdentityModel
+New-Object System.IdentityModel.Tokens.KerberosRequestorSecurityToken -ArgumentList "MSSQLSvc/dc01.azuresoc.local:1433"
+
+# Encoded PowerShell (T1059.001)
+powershell -EncodedCommand dwBoAG8AYQBtAGkA
+
+# Persistence via scheduled task (T1053.005)
+schtasks /create /tn "TestPersistence" /tr "cmd.exe /c echo test" /sc hourly /f
+schtasks /delete /tn "TestPersistence" /f
+
+# Clear event logs (T1070.001)
+wevtutil cl "Windows PowerShell"
+```
+
+Then go to **Sentinel → Logs** and run:
+```kql
+SecurityEvent
+| where TimeGenerated > ago(1h)
+| where EventID in (4688, 4624, 4625, 4672, 4698, 4769, 1102)
+| project TimeGenerated, EventID, Activity, Account, CommandLine
+| sort by TimeGenerated desc
+```
+
+You'll see every attack detected in real time.
+
+---
+
+## What Gets Deployed
 
 ```
                     ┌──────────────────────────────┐
                     │      Microsoft Sentinel       │
-                    │    Cloud SIEM + 8 connectors  │
-                    │    1000+ security events       │
-                    │    KQL detection rules         │
+                    │   Cloud SIEM · 8 connectors   │
                     └──────────┬───────────────────┘
                                │
         ┌──────────────────────┼──────────────────────┐
-        │                      │                      │
-  ┌─────┴──────┐    ┌─────────┴────────┐    ┌───────┴────────┐
-  │  vm-dc01   │    │   vm-linux01     │    │  Supporting    │
-  │ Win Server │    │   Ubuntu 22.04   │    │  Services      │
-  │ AD Domain  │    │ Suricata IDS     │    │  Key Vault     │
-  │ Sysmon v15 │    │  65K rules       │    │  Storage Acct  │
-  │ 11 AD Users│    │ Apache (target)  │    │  NSGs          │
-  │ DNS + Audit│    │ Honeypot page    │    │  DCR           │
-  └────────────┘    └──────────────────┘    └────────────────┘
-    10.0.1.0/24        10.0.2.0/24
-        └──────────┬──────────┘
-              VNet: 10.0.0.0/16
-              3 subnets, 3 NSGs
+        │     Azure VNet: 10.0.0.0/16                 │
+        │                                             │
+        │  ┌──────────────┐   ┌────────────────────┐  │
+        │  │ snet-dc      │   │ snet-linux         │  │
+        │  │ 10.0.1.0/24  │   │ 10.0.2.0/24        │  │
+        │  │              │   │                    │  │
+        │  │  vm-dc01     │   │  vm-splunk         │  │
+        │  │  Windows     │◄──┤  Ubuntu 22.04      │  │
+        │  │  AD + Sysmon │   │  Suricata + Apache │  │
+        │  └──────────────┘   └────────────────────┘  │
+        │                                             │
+        │  ┌────────────────────────────────────────┐  │
+        │  │ snet-honeypot · 10.0.3.0/24            │  │
+        │  │ NSG allows ALL (ready for trap VM)      │  │
+        │  └────────────────────────────────────────┘  │
+        └─────────────────────────────────────────────┘
 ```
 
-## What Gets Deployed (One Command)
+| Resource | Details |
+|----------|---------|
+| **vm-dc01** | Windows Server 2022 — AD DS, DNS, Sysmon v15 (SwiftOnSecurity config) |
+| **vm-splunk** | Ubuntu 22.04 — Suricata IDS (65K+ rules), Apache honeypot |
+| **Sentinel** | Log Analytics workspace + 8 data connectors |
+| **VNet** | 3 subnets, each with its own NSG |
+| **Key Vault** | Secure storage for API keys |
+| **18 resources total** | VMs, NICs, public IPs, NSGs, storage, DCR |
 
-| Layer | Component | Details |
-|-------|-----------|---------|
-| Network | VNet + 3 NSGs | 3 subnets with subnet-level firewall rules |
-| Domain Controller | Windows Server 2022 | AD DS, DNS, Sysmon v15, audit policies |
-| Active Directory | azuresoc.local | 6 users, 2 admins, 1 Kerberoastable service account |
-| Endpoint Telemetry | Sysmon | SwiftOnSecurity config — process, network, registry |
-| SIEM | Microsoft Sentinel | 8 data connectors, KQL detection rules |
-| IDS/IPS | Suricata v8 | 65,000+ Emerging Threats rules |
-| Web Target | Apache | Linux honeypot with fake corporate login page |
-| Secrets | Azure Key Vault | Secure API key storage |
-| Monitoring | Log Analytics + DCR | Windows Security Events flowing to Sentinel |
+## Active Directory Environment
 
-## Attacks Executed & Detected
+| Account | Role | Attack Scenario |
+|---------|------|----------------|
+| azuresocadmin | Domain Admin | Primary admin |
+| jsmith, sconnor, mjones, edavis, jwilson, lbrown | Domain Users | Password spray targets |
+| admin.backup | Domain Admin | Over-privileged account target |
+| svc.sql | Service Account | **Kerberoastable** — has SPN `MSSQLSvc/dc01:1433` |
 
-| Attack | MITRE ID | Tool Used | Detected By |
-|--------|----------|-----------|-------------|
-| Network Reconnaissance | T1046 | Nmap | Suricata IDS |
-| Web Vulnerability Scan | T1595.002 | Nikto | Apache logs |
-| Account Discovery | T1087.001 | net user, PowerShell | Sentinel (4688) |
-| System Discovery | T1082 | systeminfo, ipconfig | Sentinel (4688) |
-| Encoded PowerShell | T1059.001 | powershell -EncodedCommand | Sentinel (4688) |
-| Kerberoasting | T1558.003 | KerberosRequestorSecurityToken | Sentinel (4769) |
-| Scheduled Task Persistence | T1053.005 | schtasks /create | Sentinel (4698) |
-| Password Spray | T1110.003 | net use | Sentinel (4625) |
-| SMB Enumeration | T1135 | smbclient | Sentinel (5140) |
-| Log Clearing | T1070.001 | wevtutil cl | Sentinel (1102) |
+## MITRE ATT&CK Coverage
 
-## Quick Start
+| Technique | ID | Sentinel KQL Detection |
+|-----------|----|----------------------|
+| Network Scanning | T1046 | NSG flow logs |
+| Brute Force RDP | T1110.001 | `EventID == 4625` with count threshold |
+| Kerberoasting | T1558.003 | `EventID == 4769` non-machine SPN |
+| Account Discovery | T1087.001 | `CommandLine has "net user"` |
+| Encoded PowerShell | T1059.001 | `CommandLine has "EncodedCommand"` |
+| Scheduled Task | T1053.005 | `EventID == 4698` |
+| Log Clearing | T1070.001 | `EventID == 1102` |
+| System Discovery | T1082 | `CommandLine has "systeminfo"` |
+| SMB Enumeration | T1021.002 | `EventID in (5140, 5145)` |
+| LSASS Access | T1003.001 | Sysmon Event 10 |
+
+## Useful Commands
 
 ```powershell
-# Deploy the entire SOC lab
-az login
-.\scripts\setup\master-deploy.ps1 -AdminPassword "YourStr0ngP@ss!"
-
-# Verify all components
-.\scripts\setup\verify-all.ps1
-
-# Stop VMs when done (save money)
-.\scripts\setup\stop-all.ps1
-
-# Start VMs next session
-.\scripts\setup\start-all.ps1
-```
-
-Auto-detects available Azure region and VM size. Deploys everything in 20-40 minutes.
-
-## Repository Structure
-
-```
-AzureSOC/
-├── infra/main.bicep                              # Bicep IaC template
-├── scripts/
-│   ├── setup/
-│   │   ├── master-deploy.ps1                     # One-command deployment
-│   │   ├── verify-all.ps1                        # Health check all components
-│   │   ├── deploy-honeypot.ps1                   # Deploy honeypot login page
-│   │   ├── start-all.ps1 / stop-all.ps1          # Cost management
-│   ├── attack/
-│   │   ├── run-attack-simulation.ps1             # Atomic Red Team chains
-│   │   └── run-portscan.ps1                      # Nmap port scanner
-│   └── detection/
-│       └── sentinel-rules/all-detections.kql     # 10 KQL detection rules
-├── cspm/cspm_audit.py                            # Azure cloud posture scanner
-├── docs/
-│   ├── attack-defense-guide/ATTACK-DEFENSE-PLAYBOOK.md  # Complete attack & defense guide
-│   ├── AzureSOC-Complete-Build-Guide.docx
-│   └── playbooks/T1003.001-credential-dumping.md
-└── screenshots/
-```
-
-## Sentinel KQL Detection Rules
-
-10 rules mapped to MITRE ATT&CK: Brute Force RDP (T1110.001), LSASS Credential Dump (T1003.001), Suspicious PowerShell (T1059.001), New Service (T1543.003), Lateral Movement (T1021.002), Scheduled Task (T1053.005), Account Discovery (T1087.001), Log Clearing (T1070.001), Kerberoasting (T1558.003), Honeypot Login (Custom).
-
-## Key KQL Queries
-
-```kql
-// See all attack activity
-SecurityEvent
-| where EventID in (4688, 4624, 4625, 4672, 4698, 4769, 1102)
-| project TimeGenerated, EventID, Activity, Account, CommandLine
-| sort by TimeGenerated desc
-
-// Detect Kerberoasting
-SecurityEvent
-| where EventID == 4769
-| where ServiceName !endswith "$"
-| project TimeGenerated, Account, ServiceName, TicketEncryptionType
-
-// Detect brute force
-SecurityEvent
-| where EventID == 4625
-| summarize FailedAttempts=count() by TargetAccount, IpAddress, bin(TimeGenerated, 5m)
-| where FailedAttempts > 3
+.\scripts\setup\verify-all.ps1    # Check all 6 components
+.\scripts\setup\stop-all.ps1      # Stop VMs ($0 compute cost)
+.\scripts\setup\start-all.ps1     # Resume next session
 ```
 
 ## Cost
 
-~$2-4 per 8-hour session with Standard_D2s_v3 VMs.
+| Running | ~$0.40/hr (~$3/session) |
+|---------|------------------------|
+| Stopped | ~$0.10/day (storage only) |
 
-## Technologies Used
+## Repository Structure
 
-Azure (VMs, VNet, NSGs, Sentinel, Key Vault, Log Analytics, DCR), Windows Server 2022, Active Directory, Sysmon, Suricata IDS, Apache, KQL, Bicep IaC, PowerShell, Bash, MITRE ATT&CK Framework, Nmap, Nikto, Hydra
+```
+├── infra/main.bicep                          # Bicep IaC template
+├── scripts/
+│   ├── setup/master-deploy.ps1               # One-command deployment
+│   ├── setup/verify-all.ps1                  # Health check
+│   ├── setup/start-all.ps1 / stop-all.ps1   # Cost management
+│   ├── attack/run-attack-simulation.ps1      # Attack chains
+│   └── detection/sentinel-rules/*.kql        # 10 KQL rules
+├── cspm/cspm_audit.py                        # Cloud posture scanner
+├── docs/
+│   ├── attack-defense-guide/                 # Full attack playbook
+│   └── playbooks/                            # Purple team playbooks
+└── screenshots/
+```
+
+## Full Report
+
+Complete project documentation with network topology, beginner explanations, Kerberos walkthrough, and attack-to-detection pipeline: [Notion Report](https://www.notion.so/32c021e08b218123a013fbbbccdbbbfc)
 
 ## License
 
