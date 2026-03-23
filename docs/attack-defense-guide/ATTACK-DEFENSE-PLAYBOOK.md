@@ -33,7 +33,7 @@
 - **SCREENSHOT:** Take SS of NSG rules for nsg-dc and nsg-honeypot
 
 ### Key Vault
-- **URL:** portal.azure.com > Search "Key vaults" > kv-u6icclo4gpyl6
+- **URL:** portal.azure.com > Search "Key vaults" > kv-<unique-id>
 - **Secrets:** Key Vault > Objects > Secrets (where API keys go)
 - **Access Policies:** Key Vault > Access configuration
 - **SCREENSHOT:** Take SS of Key Vault overview
@@ -93,10 +93,10 @@ az vm run-command invoke -g rg-azuresoc --name vm-splunk --command-id RunShellSc
 </form><p style='color:gray;font-size:12px;'>Authorized access only. All attempts are logged.</p>
 </body></html>
 EOF
-systemctl restart apache2; echo 'FAKE LOGIN PAGE DEPLOYED at http://20.9.19.213'"
+systemctl restart apache2; echo 'FAKE LOGIN PAGE DEPLOYED at http://<linux-vm-public-ip>'"
 ```
 
-**SCREENSHOT:** Open http://20.9.19.213 to see the fake login page
+**SCREENSHOT:** Open http://<linux-vm-public-ip> to see the fake login page
 
 ---
 
@@ -427,7 +427,7 @@ SecurityEvent
 
 ## Network Screenshots
 - [ ] nmap scan results
-- [ ] Apache default page (http://20.9.19.213)
+- [ ] Apache default page (http://<linux-vm-public-ip>)
 - [ ] Honeypot fake login page (after deploying it)
 
 ---

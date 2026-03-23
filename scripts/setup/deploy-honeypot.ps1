@@ -22,6 +22,8 @@ $html = @"
 $bytes = [System.Text.Encoding]::UTF8.GetBytes($html)
 $b64 = [System.Convert]::ToBase64String($bytes)
 
+$splunkIP = az vm show -g $ResourceGroup -n vm-splunk -d --query publicIps -o tsv 2>$null
+
 Write-Host "Deploying honeypot login page..." -ForegroundColor Yellow
 
 az vm run-command invoke -g $ResourceGroup --name vm-splunk --command-id RunShellScript `
@@ -29,4 +31,4 @@ az vm run-command invoke -g $ResourceGroup --name vm-splunk --command-id RunShel
     --only-show-errors
 
 Write-Host ""
-Write-Host "Done! Open http://20.9.19.213 (Ctrl+Shift+R to hard refresh)" -ForegroundColor Green
+Write-Host "Done! Open http://${splunkIP} (Ctrl+Shift+R to hard refresh)" -ForegroundColor Green
