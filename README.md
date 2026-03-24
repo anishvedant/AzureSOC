@@ -1,4 +1,4 @@
-# AzureSOC — Cloud Security Operations Center
+# AzureSOC - Cloud Security Operations Center
 
 Deploy a full SOC lab on Azure with one command. Active Directory, Microsoft Sentinel SIEM, Suricata IDS, Sysmon, and MITRE ATT&CK attack simulation.
 
@@ -13,7 +13,7 @@ az login
 
 Auto-scans 10 regions and 7 VM sizes. Deploys in 20–40 minutes.
 
-**After deploy — connect logs to Sentinel:**
+**After deploy - connect logs to Sentinel:**
 Portal → Microsoft Sentinel → law-azuresoc → Data connectors → Windows Security Events via AMA → Create DCR → select vm-dc01 → All Security Events
 
 ## Architecture
@@ -42,7 +42,7 @@ Portal → Microsoft Sentinel → law-azuresoc → Data connectors → Windows S
 │               │                                                        │
 │               │ SecurityEvent + Sysmon via AMA                         │
 │  ┌────────────┴──────────────────────────────────────────────────┐     │
-│  │ snet-honeypot (10.0.3.0/24) — NSG: ALLOW ALL (future trap)   │     │
+│  │ snet-honeypot (10.0.3.0/24) - NSG: ALLOW ALL (future trap)   │     │
 │  └───────────────────────────────────────────────────────────────┘     │
 └───────────────────────────────┬────────────────────────────────────────┘
                                 │
@@ -132,7 +132,7 @@ Cost: ~$3 per 8-hour session. ~$0.10/day when stopped.
 
 Complete documentation with network topology, Kerberos walkthrough, attack-to-detection pipeline, and evidence screenshots:
 
-**[AzureSOC — Complete SOC Lab Report (Notion)](https://www.notion.so/32c021e08b218123a013fbbbccdbbbfc)**
+**[AzureSOC - Complete SOC Lab Report (Notion)](https://www.notion.so/32c021e08b218123a013fbbbccdbbbfc)**
 
 ## License
 
