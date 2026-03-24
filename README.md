@@ -1,6 +1,6 @@
 # AzureSOC — Cloud Security Operations Center
 
-Deploy a full SOC lab on Azure with one command. Active Directory, Microsoft Sentinel, Suricata IDS, Sysmon, and MITRE ATT&CK attack simulation.
+Deploy a full SOC lab on Azure with one command. Active Directory, Microsoft Sentinel SIEM, Suricata IDS, Sysmon, and MITRE ATT&CK attack simulation.
 
 ## Deploy
 
@@ -11,20 +11,64 @@ az login
 .\scripts\setup\master-deploy.ps1 -AdminPassword "YourStr0ngP@ss!"
 ```
 
-Auto-scans 10 regions and 7 VM sizes. Deploys in 20-40 minutes.
+Auto-scans 10 regions and 7 VM sizes. Deploys in 20–40 minutes.
 
 **After deploy — connect logs to Sentinel:**
-Portal > Microsoft Sentinel > law-azuresoc > Data connectors > Windows Security Events via AMA > Create data collection rule > select vm-dc01 > All Security Events
+Portal → Microsoft Sentinel → law-azuresoc → Data connectors → Windows Security Events via AMA → Create DCR → select vm-dc01 → All Security Events
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                          INTERNET (Your laptop)                        │
+└──────────────────┬──────────────────────┬──────────────────────────────┘
+                   │ RDP :3389            │ SSH :22 / HTTP :80
+                   │                      │
+┌──────────────────┴──────────────────────┴──────────────────────────────┐
+│                 Azure VNet: vnet-azuresoc (10.0.0.0/16)                │
+│                                                                        │
+│  ┌────────────────────────────┐     ┌─────────────────────────────┐    │
+│  │ snet-dc (10.0.1.0/24)     │     │ snet-splunk (10.0.2.0/24)   │    │
+│  │ NSG: RDP + AD ports       │     │ NSG: SSH + HTTP              │    │
+│  │                            │     │                              │    │
+│  │  vm-dc01 (10.0.1.4)       │     │  vm-splunk (10.0.2.4)       │    │
+│  │  Windows Server 2022      │     │  Ubuntu 22.04 LTS            │    │
+│  │  • Active Directory       │nmap │  • Suricata IDS (65K rules)  │    │
+│  │  • DNS + Kerberos     ◄───┼─────┤  • Apache 2.4 (honeypot)    │    │
+│  │  • Sysmon v15             │hydra│  • nmap, nikto, hydra        │    │
+│  │  • Azure Monitor Agent    │nikto│    (attack tools)            │    │
+│  │  • 11 AD Users            │     │                              │    │
+│  └────────────┬───────────────┘     └─────────────────────────────┘    │
+│               │                                                        │
+│               │ SecurityEvent + Sysmon via AMA                         │
+│  ┌────────────┴──────────────────────────────────────────────────┐     │
+│  │ snet-honeypot (10.0.3.0/24) — NSG: ALLOW ALL (future trap)   │     │
+│  └───────────────────────────────────────────────────────────────┘     │
+└───────────────────────────────┬────────────────────────────────────────┘
+                                │
+              ┌─────────────────┴─────────────────────────┐
+              │  Data Collection Rule → Log Analytics      │
+              │  → Microsoft Sentinel (SIEM)               │
+              │    • 8 Data Connectors                     │
+              │    • 1000+ Security Events                 │
+              │    • Custom KQL Analytics Rules             │
+              │    • Automated Incident Creation            │
+              └────────────────────────────────────────────┘
+
+Supporting: Key Vault (secrets) • Storage Account (flow logs) • Network Watcher
+```
+
+18 resources total: 2 VMs, VNet, 3 NSGs, Sentinel, Key Vault, Storage, DCR, NICs, Public IPs, Network Watcher.
 
 ## Run Attacks
 
 ```powershell
-.\scripts\attack\run-attacks.ps1 -Action all     # Scan + honeypot + web scan
-.\scripts\attack\run-attacks.ps1 -Action scan     # Nmap port scan
+.\scripts\attack\run-attacks.ps1 -Action all       # Scan + honeypot + web scan
+.\scripts\attack\run-attacks.ps1 -Action scan       # Nmap port scan
 .\scripts\attack\run-attacks.ps1 -Action bruteforce  # RDP brute force
 ```
 
-Then RDP into the DC and run AD attacks manually:
+AD attacks (run manually via RDP on DC):
 ```powershell
 net user /domain                          # T1087 Account Discovery
 Add-Type -AssemblyName System.IdentityModel
@@ -34,7 +78,7 @@ powershell -EncodedCommand dwBoAG8AYQBtAGkA                        # T1059.001 E
 wevtutil cl "Windows PowerShell"                                    # T1070.001 Log Clearing
 ```
 
-Check detections in Sentinel > Logs:
+Detect in Sentinel → Logs:
 ```kql
 SecurityEvent
 | where TimeGenerated > ago(1h)
@@ -42,32 +86,6 @@ SecurityEvent
 | project TimeGenerated, EventID, Activity, Account, CommandLine
 | sort by TimeGenerated desc
 ```
-
-## What Gets Deployed
-
-```
-                    ┌──────────────────────────────┐
-                    │      Microsoft Sentinel       │
-                    │   Cloud SIEM · 8 connectors   │
-                    └──────────┬───────────────────┘
-                               │
-        ┌──────────────────────┼──────────────────────┐
-        │     Azure VNet: 10.0.0.0/16                 │
-        │                                             │
-        │  ┌──────────────┐   ┌────────────────────┐  │
-        │  │ vm-dc01      │   │ vm-splunk          │  │
-        │  │ Win Server   │◄──┤ Ubuntu 22.04       │  │
-        │  │ AD + Sysmon  │   │ Suricata + Apache  │  │
-        │  │ 11 AD Users  │   │ 65K IDS rules      │  │
-        │  └──────────────┘   └────────────────────┘  │
-        │                                             │
-        │  ┌────────────────────────────────────────┐  │
-        │  │ snet-honeypot (ready for trap VM)       │  │
-        │  └────────────────────────────────────────┘  │
-        └─────────────────────────────────────────────┘
-```
-
-18 resources: 2 VMs, VNet, 3 NSGs, Sentinel, Key Vault, Storage, DCR, NICs, Public IPs, Network Watcher.
 
 ## MITRE ATT&CK Coverage
 
@@ -112,7 +130,7 @@ Cost: ~$3 per 8-hour session. ~$0.10/day when stopped.
 
 ## Full Report
 
-Complete documentation with network topology, Kerberos walkthrough, attack-to-detection pipeline, beginner explanations, and screenshots:
+Complete documentation with network topology, Kerberos walkthrough, attack-to-detection pipeline, and evidence screenshots:
 
 **[AzureSOC — Complete SOC Lab Report (Notion)](https://www.notion.so/32c021e08b218123a013fbbbccdbbbfc)**
 
