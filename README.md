@@ -20,40 +20,40 @@ Portal → Microsoft Sentinel → law-azuresoc → Data connectors → Windows S
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
-│                          INTERNET (Your laptop)                        │
-└──────────────────┬──────────────────────┬──────────────────────────────┘
+│                          INTERNET (Your laptop)                         │
+└──────────────────┬──────────────────────┬───────────────────────────────┘
                    │ RDP :3389            │ SSH :22 / HTTP :80
                    │                      │
 ┌──────────────────┴──────────────────────┴──────────────────────────────┐
 │                 Azure VNet: vnet-azuresoc (10.0.0.0/16)                │
 │                                                                        │
 │  ┌────────────────────────────┐     ┌─────────────────────────────┐    │
-│  │ snet-dc (10.0.1.0/24)     │     │ snet-splunk (10.0.2.0/24)   │    │
-│  │ NSG: RDP + AD ports       │     │ NSG: SSH + HTTP              │    │
-│  │                            │     │                              │    │
-│  │  vm-dc01 (10.0.1.4)       │     │  vm-splunk (10.0.2.4)       │    │
-│  │  Windows Server 2022      │     │  Ubuntu 22.04 LTS            │    │
-│  │  • Active Directory       │nmap │  • Suricata IDS (65K rules)  │    │
-│  │  • DNS + Kerberos     ◄───┼─────┤  • Apache 2.4 (honeypot)    │    │
-│  │  • Sysmon v15             │hydra│  • nmap, nikto, hydra        │    │
-│  │  • Azure Monitor Agent    │nikto│    (attack tools)            │    │
-│  │  • 11 AD Users            │     │                              │    │
+│  │ snet-dc (10.0.1.0/24)      │     │ snet-splunk (10.0.2.0/24)   │    │
+│  │ NSG: RDP + AD ports        │     │ NSG: SSH + HTTP             │    │
+│  │                            │     │                             │    │
+│  │  vm-dc01 (10.0.1.4)        │     │  vm-splunk (10.0.2.4)       │    │
+│  │  Windows Server 2022       │     │  Ubuntu 22.04 LTS           │    │
+│  │  • Active Directory        │nmap │  • Suricata IDS (65K rules) │    │
+│  │  • DNS + Kerberos      ◄───┼─────┤  • Apache 2.4 (honeypot)    │    │
+│  │  • Sysmon v15              │hydra│  • nmap, nikto, hydra       │    │
+│  │  • Azure Monitor Agent     │nikto│    (attack tools)           │    │
+│  │  • 11 AD Users             │     │                             │    │
 │  └────────────┬───────────────┘     └─────────────────────────────┘    │
 │               │                                                        │
 │               │ SecurityEvent + Sysmon via AMA                         │
 │  ┌────────────┴──────────────────────────────────────────────────┐     │
-│  │ snet-honeypot (10.0.3.0/24) - NSG: ALLOW ALL (future trap)   │     │
+│  │ snet-honeypot (10.0.3.0/24) - NSG: ALLOW ALL (future trap)    │     │
 │  └───────────────────────────────────────────────────────────────┘     │
 └───────────────────────────────┬────────────────────────────────────────┘
                                 │
-              ┌─────────────────┴─────────────────────────┐
-              │  Data Collection Rule → Log Analytics      │
-              │  → Microsoft Sentinel (SIEM)               │
-              │    • 8 Data Connectors                     │
-              │    • 1000+ Security Events                 │
-              │    • Custom KQL Analytics Rules             │
-              │    • Automated Incident Creation            │
-              └────────────────────────────────────────────┘
+              ┌─────────────────┴──────────────────────┐
+              │  Data Collection Rule → Log Analytics  │
+              │  → Microsoft Sentinel (SIEM)           │
+              │    • 8 Data Connectors                 │
+              │    • 1000+ Security Events             │
+              │    • Custom KQL Analytics Rules        │
+              │    • Automated Incident Creation       │
+              └────────────────────────────────────────┘
 
 Supporting: Key Vault (secrets) • Storage Account (flow logs) • Network Watcher
 ```
@@ -132,7 +132,7 @@ Cost: ~$3 per 8-hour session. ~$0.10/day when stopped.
 
 Complete documentation with network topology, Kerberos walkthrough, attack-to-detection pipeline, and evidence screenshots:
 
-**[AzureSOC - Complete SOC Lab Report (Notion)](https://www.notion.so/32c021e08b218123a013fbbbccdbbbfc)**
+**[AzureSOC - Complete SOC Lab Report](https://www.notion.so/32c021e08b218123a013fbbbccdbbbfc)**
 
 ## License
 
